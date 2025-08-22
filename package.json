@@ -2,10 +2,10 @@
   "name": "mcp-task-server",
   "version": "1.0.0",
   "description": "Personal MCP Task Management Server",
-  "main": "server.js",
+  "main": "mcp-http-server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js",
+    "start": "node mcp-http-server.js",
+    "dev": "nodemon mcp-http-server.js",
     "mcp": "node server.js --stdio"
   },
   "dependencies": {
