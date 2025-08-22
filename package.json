@@ -8,10 +8,11 @@
     "dev": "nodemon mcp-task-server.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
+    "@modelcontextprotocol/sdk": "^1.17.4",
+    "@replit/database": "^2.0.2",
     "cors": "^2.8.5",
-    "uuid": "^9.0.0",
-    "@replit/database": "^2.0.2"
+    "express": "^4.18.2",
+    "uuid": "^9.0.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
