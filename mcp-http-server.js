@@ -3,19 +3,29 @@ const cors = require('cors');
 const { v4: uuidv4 } = require('uuid');
 
 const app = express();
+
+// CORS configuration for MCP
 app.use(cors({
-  origin: true,
+  origin: (origin, callback) => {
+    // Allow requests from Claude Code and other MCP clients
+    if (!origin || origin.includes('localhost') || origin.includes('claude')) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Allow all for now, implement proper validation later
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Accept', 'MCP-Protocol-Version', 'Origin']
+  allowedHeaders: ['Content-Type', 'Accept', 'MCP-Protocol-Version', 'Mcp-Session-Id', 'Authorization', 'Origin']
 }));
+
 app.use(express.json());
 
 // In-memory database
 let projects = [];
 let tasks = [];
 
-// MCP Tools
+// Tool definitions
 const tools = [
   {
     name: "list_projects",
@@ -23,7 +33,11 @@ const tools = [
     inputSchema: {
       type: "object",
       properties: {
-        status: { type: "string", enum: ["todo", "in_progress", "done", "all"] }
+        status: { 
+          type: "string", 
+          enum: ["todo", "in_progress", "done", "all"],
+          description: "Filter projects by status" 
+        }
       }
     }
   },
@@ -34,10 +48,20 @@ const tools = [
       type: "object",
       required: ["name"],
       properties: {
-        name: { type: "string" },
-        description: { type: "string" },
-        status: { type: "string", enum: ["todo", "in_progress", "done"] },
-        priority: { type: "string", enum: ["low", "medium", "high", "urgent"] }
+        name: { type: "string", description: "Project name" },
+        description: { type: "string", description: "Project description" },
+        status: { 
+          type: "string", 
+          enum: ["todo", "in_progress", "done"],
+          default: "todo",
+          description: "Project status"
+        },
+        priority: { 
+          type: "string", 
+          enum: ["low", "medium", "high", "urgent"],
+          default: "medium",
+          description: "Project priority"
+        }
       }
     }
   },
@@ -48,29 +72,43 @@ const tools = [
       type: "object",
       required: ["title", "project_id"],
       properties: {
-        title: { type: "string" },
-        description: { type: "string" },
-        project_id: { type: "string" },
-        status: { type: "string", enum: ["todo", "in_progress", "done"] },
-        priority: { type: "string", enum: ["low", "medium", "high", "urgent"] }
+        title: { type: "string", description: "Task title" },
+        description: { type: "string", description: "Task description" },
+        project_id: { type: "string", description: "ID of the project this task belongs to" },
+        status: { 
+          type: "string", 
+          enum: ["todo", "in_progress", "done"],
+          default: "todo",
+          description: "Task status"
+        },
+        priority: { 
+          type: "string", 
+          enum: ["low", "medium", "high", "urgent"],
+          default: "medium",
+          description: "Task priority"
+        }
       }
     }
   },
   {
-    name: "list_tasks", 
+    name: "list_tasks",
     description: "List tasks, optionally filtered by project or status",
     inputSchema: {
       type: "object",
       properties: {
-        project_id: { type: "string" },
-        status: { type: "string", enum: ["todo", "in_progress", "done", "all"] }
+        project_id: { type: "string", description: "Filter by project ID" },
+        status: { 
+          type: "string", 
+          enum: ["todo", "in_progress", "done", "all"],
+          description: "Filter tasks by status"
+        }
       }
     }
   }
 ];
 
-// Tool implementations
-function executeTool(name, args) {
+// Tool execution
+function executeTool(name, args = {}) {
   switch (name) {
     case "list_projects":
       let filteredProjects = projects;
@@ -126,76 +164,118 @@ function executeTool(name, args) {
   }
 }
 
-// MCP HTTP Transport - Single endpoint for all MCP communication
+// Global session state
+let sessions = new Map();
+
+// MCP HTTP Transport Endpoint
 app.all('/mcp', (req, res) => {
-  // Set required headers
-  res.setHeader('MCP-Protocol-Version', '2024-11-05');
+  const protocolVersion = '2024-11-05';
+  
+  // Set required MCP headers
+  res.setHeader('MCP-Protocol-Version', protocolVersion);
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, MCP-Protocol-Version, Mcp-Session-Id, Authorization, Origin');
+  
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
   
   if (req.method === 'POST') {
     try {
       const message = req.body;
+      console.log('Received MCP message:', JSON.stringify(message, null, 2));
       
-      // Handle different MCP message types
-      if (message.method === 'initialize') {
-        const response = {
-          jsonrpc: "2.0",
-          id: message.id,
-          result: {
-            protocolVersion: "2024-11-05",
-            capabilities: {
-              tools: {}
-            },
-            serverInfo: {
-              name: "task-manager",
-              version: "1.0.0"
-            }
-          }
-        };
-        res.json(response);
-        
-      } else if (message.method === 'tools/list') {
-        const response = {
-          jsonrpc: "2.0",
-          id: message.id,
-          result: {
-            tools: tools
-          }
-        };
-        res.json(response);
-        
-      } else if (message.method === 'tools/call') {
-        const { name, arguments: args } = message.params;
-        const result = executeTool(name, args);
-        
-        const response = {
-          jsonrpc: "2.0",
-          id: message.id,
-          result: {
-            content: [{
-              type: "text",
-              text: result
-            }]
-          }
-        };
-        res.json(response);
-        
-      } else {
-        // Unknown method
-        const errorResponse = {
-          jsonrpc: "2.0",
-          id: message.id,
+      // Validate JSON-RPC format
+      if (!message.jsonrpc || message.jsonrpc !== '2.0') {
+        return res.status(400).json({
+          jsonrpc: '2.0',
+          id: message.id || null,
           error: {
-            code: -32601,
-            message: `Method not found: ${message.method}`
+            code: -32600,
+            message: 'Invalid Request - missing or invalid jsonrpc version'
           }
-        };
-        res.status(404).json(errorResponse);
+        });
       }
       
+      let response;
+      
+      switch (message.method) {
+        case 'initialize':
+          const sessionId = uuidv4();
+          sessions.set(sessionId, {
+            capabilities: message.params?.capabilities || {},
+            clientInfo: message.params?.clientInfo || {}
+          });
+          
+          response = {
+            jsonrpc: '2.0',
+            id: message.id,
+            result: {
+              protocolVersion: protocolVersion,
+              capabilities: {
+                tools: {}
+              },
+              serverInfo: {
+                name: 'task-manager',
+                version: '1.0.0'
+              }
+            }
+          };
+          
+          // Set session header for future requests
+          res.setHeader('Mcp-Session-Id', sessionId);
+          break;
+          
+        case 'tools/list':
+          response = {
+            jsonrpc: '2.0',
+            id: message.id,
+            result: {
+              tools: tools
+            }
+          };
+          break;
+          
+        case 'tools/call':
+          const { name, arguments: args } = message.params;
+          const result = executeTool(name, args);
+          
+          response = {
+            jsonrpc: '2.0',
+            id: message.id,
+            result: {
+              content: [{
+                type: 'text',
+                text: result
+              }]
+            }
+          };
+          break;
+          
+        case 'notifications/initialized':
+          // Client finished initializing, send 202 for notifications
+          return res.status(202).end();
+          
+        default:
+          response = {
+            jsonrpc: '2.0',
+            id: message.id,
+            error: {
+              code: -32601,
+              message: `Method not found: ${message.method}`
+            }
+          };
+      }
+      
+      console.log('Sending MCP response:', JSON.stringify(response, null, 2));
+      res.json(response);
+      
     } catch (error) {
+      console.error('MCP Error:', error);
       const errorResponse = {
-        jsonrpc: "2.0",
-        id: req.body.id || null,
+        jsonrpc: '2.0',
+        id: req.body?.id || null,
         error: {
           code: -32603,
           message: error.message
@@ -205,22 +285,40 @@ app.all('/mcp', (req, res) => {
     }
     
   } else if (req.method === 'GET') {
-    // SSE support for HTTP MCP transport
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
-      'MCP-Protocol-Version': '2024-11-05'
-    });
+    // Server-Sent Events endpoint
+    const accept = req.headers.accept;
     
-    // Keep connection alive
-    res.write('data: {"jsonrpc":"2.0","method":"notifications/initialized","params":{}}\n\n');
-    
-    // Handle client disconnect
-    req.on('close', () => {
-      console.log('SSE client disconnected');
-    });
+    if (accept && accept.includes('text/event-stream')) {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+        'MCP-Protocol-Version': protocolVersion
+      });
+      
+      // Send initial connection event
+      res.write(`data: ${JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'notifications/resources/updated'
+      })}\n\n`);
+      
+      // Keep connection alive with heartbeat
+      const heartbeat = setInterval(() => {
+        res.write(`: heartbeat ${Date.now()}\n\n`);
+      }, 30000);
+      
+      // Clean up on close
+      req.on('close', () => {
+        clearInterval(heartbeat);
+        console.log('SSE client disconnected');
+      });
+      
+    } else {
+      res.status(400).json({
+        error: 'Bad Request - Accept header must include text/event-stream for GET requests'
+      });
+    }
   }
 });
 
@@ -230,7 +328,23 @@ app.get('/health', (req, res) => {
     status: 'healthy',
     projects_count: projects.length,
     tasks_count: tasks.length,
+    sessions: sessions.size,
     timestamp: new Date().toISOString()
+  });
+});
+
+// Root endpoint for server info
+app.get('/', (req, res) => {
+  res.json({
+    name: 'MCP Task Manager Server',
+    version: '1.0.0',
+    protocol: 'MCP 2024-11-05',
+    transport: 'HTTP with SSE',
+    endpoints: {
+      mcp: '/mcp',
+      health: '/health'
+    },
+    tools: tools.map(t => ({ name: t.name, description: t.description }))
   });
 });
 
@@ -238,5 +352,6 @@ const port = process.env.PORT || 3000;
 app.listen(port, () => {
   console.log(`🚀 MCP HTTP Server running on port ${port}`);
   console.log(`📊 Projects: ${projects.length} | Tasks: ${tasks.length}`);
-  console.log(`🔗 MCP endpoint: http://localhost:${port}/mcp`);
+  console.log(`🔗 MCP endpoint: ${port === 3000 ? `http://localhost:${port}` : 'Railway deployment'}/mcp`);
+  console.log(`💡 Protocol: MCP 2024-11-05 with HTTP+SSE transport`);
 });
