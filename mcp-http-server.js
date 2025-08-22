@@ -205,8 +205,22 @@ app.all('/mcp', (req, res) => {
     }
     
   } else if (req.method === 'GET') {
-    // Optional SSE support (not implemented for simplicity)
-    res.status(501).json({ error: "SSE not implemented" });
+    // SSE support for HTTP MCP transport
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+      'MCP-Protocol-Version': '2024-11-05'
+    });
+    
+    // Keep connection alive
+    res.write('data: {"jsonrpc":"2.0","method":"notifications/initialized","params":{}}\n\n');
+    
+    // Handle client disconnect
+    req.on('close', () => {
+      console.log('SSE client disconnected');
+    });
   }
 });
 
