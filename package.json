@@ -2,10 +2,11 @@
   "name": "mcp-task-server",
   "version": "1.0.0",
   "description": "Personal MCP Task Management Server",
-  "main": "mcp-task-server.js",
+  "main": "server.js",
   "scripts": {
-    "start": "node mcp-task-server.js",
-    "dev": "nodemon mcp-task-server.js"
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "mcp": "node server.js --stdio"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.4",
