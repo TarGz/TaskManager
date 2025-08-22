@@ -1,0 +1,19 @@
+{
+  "name": "mcp-task-server",
+  "version": "1.0.0",
+  "description": "Personal MCP Task Management Server",
+  "main": "mcp-task-server.js",
+  "scripts": {
+    "start": "node mcp-task-server.js",
+    "dev": "nodemon mcp-task-server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "uuid": "^9.0.0",
+    "@replit/database": "^2.0.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}

@@ -1,0 +1,10 @@
+node_modules/
+.env
+.DS_Store
+*.log
+.replit
+replit.nix
+.config/
+.cache/
+.upm/
+CLAUDE.md
