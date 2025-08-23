@@ -8,3 +8,4 @@ replit.nix
 .cache/
 .upm/
 CLAUDE.md
+tasks-data.json

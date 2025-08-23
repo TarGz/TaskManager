@@ -1,6 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 const { v4: uuidv4 } = require('uuid');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 
@@ -21,9 +23,44 @@ app.use(cors({
 
 app.use(express.json());
 
+// Data file path
+const DATA_FILE = path.join(__dirname, 'tasks-data.json');
+
 // In-memory database
 let projects = [];
 let tasks = [];
+
+// Load data from file
+function loadData() {
+  try {
+    if (fs.existsSync(DATA_FILE)) {
+      const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+      projects = data.projects || [];
+      tasks = data.tasks || [];
+      console.log(`📁 Loaded ${projects.length} projects and ${tasks.length} tasks from storage`);
+    } else {
+      console.log('📁 No existing data file, starting fresh');
+    }
+  } catch (error) {
+    console.error('❌ Error loading data:', error);
+    projects = [];
+    tasks = [];
+  }
+}
+
+// Save data to file
+function saveData() {
+  try {
+    const data = { projects, tasks };
+    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+    console.log(`💾 Saved ${projects.length} projects and ${tasks.length} tasks to storage`);
+  } catch (error) {
+    console.error('❌ Error saving data:', error);
+  }
+}
+
+// Load data on startup
+loadData();
 
 // Tool definitions
 const tools = [
@@ -196,6 +233,7 @@ function executeTool(name, args = {}) {
         updated_at: new Date().toISOString()
       };
       projects.push(newProject);
+      saveData();
       return `✅ Created project: "${newProject.name}" (${newProject.id})\nStatus: ${newProject.status} | Priority: ${newProject.priority}`;
 
     case "create_task":
@@ -215,6 +253,7 @@ function executeTool(name, args = {}) {
         updated_at: new Date().toISOString()
       };
       tasks.push(newTask);
+      saveData();
       return `✅ Created task: "${newTask.title}" in project "${project.name}"\nStatus: ${newTask.status} | Priority: ${newTask.priority}`;
 
     case "list_tasks":
@@ -239,7 +278,7 @@ function executeTool(name, args = {}) {
       if (args.status !== undefined) tasks[taskIndex].status = args.status;
       if (args.priority !== undefined) tasks[taskIndex].priority = args.priority;
       tasks[taskIndex].updated_at = new Date().toISOString();
-      
+      saveData();
       return `✅ Updated task: "${tasks[taskIndex].title}"\nStatus: ${tasks[taskIndex].status} | Priority: ${tasks[taskIndex].priority}`;
 
     case "delete_task":
@@ -249,6 +288,7 @@ function executeTool(name, args = {}) {
       }
       
       tasks = tasks.filter(t => t.id !== args.task_id);
+      saveData();
       return `🗑️ Deleted task: "${taskToDelete.title}"`;
 
     case "update_project":
@@ -263,7 +303,7 @@ function executeTool(name, args = {}) {
       if (args.status !== undefined) projects[projectIndex].status = args.status;
       if (args.priority !== undefined) projects[projectIndex].priority = args.priority;
       projects[projectIndex].updated_at = new Date().toISOString();
-      
+      saveData();
       return `✅ Updated project: "${projects[projectIndex].name}"\nStatus: ${projects[projectIndex].status} | Priority: ${projects[projectIndex].priority}`;
 
     case "delete_project":
@@ -276,7 +316,7 @@ function executeTool(name, args = {}) {
       const deletedTasksCount = tasks.filter(t => t.project_id === args.project_id).length;
       tasks = tasks.filter(t => t.project_id !== args.project_id);
       projects = projects.filter(p => p.id !== args.project_id);
-      
+      saveData();
       return `🗑️ Deleted project: "${projectToDelete.name}" and ${deletedTasksCount} associated tasks`;
 
     default:
