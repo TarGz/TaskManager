@@ -104,6 +104,74 @@ const tools = [
         }
       }
     }
+  },
+  {
+    name: "update_task",
+    description: "Update an existing task",
+    inputSchema: {
+      type: "object",
+      required: ["task_id"],
+      properties: {
+        task_id: { type: "string", description: "ID of the task to update" },
+        title: { type: "string", description: "New task title" },
+        description: { type: "string", description: "New task description" },
+        status: { 
+          type: "string", 
+          enum: ["todo", "in_progress", "done"],
+          description: "New task status"
+        },
+        priority: { 
+          type: "string", 
+          enum: ["low", "medium", "high", "urgent"],
+          description: "New task priority"
+        }
+      }
+    }
+  },
+  {
+    name: "delete_task",
+    description: "Delete a task",
+    inputSchema: {
+      type: "object",
+      required: ["task_id"],
+      properties: {
+        task_id: { type: "string", description: "ID of the task to delete" }
+      }
+    }
+  },
+  {
+    name: "update_project",
+    description: "Update an existing project",
+    inputSchema: {
+      type: "object",
+      required: ["project_id"],
+      properties: {
+        project_id: { type: "string", description: "ID of the project to update" },
+        name: { type: "string", description: "New project name" },
+        description: { type: "string", description: "New project description" },
+        status: { 
+          type: "string", 
+          enum: ["todo", "in_progress", "done"],
+          description: "New project status"
+        },
+        priority: { 
+          type: "string", 
+          enum: ["low", "medium", "high", "urgent"],
+          description: "New project priority"
+        }
+      }
+    }
+  },
+  {
+    name: "delete_project",
+    description: "Delete a project and all its tasks",
+    inputSchema: {
+      type: "object",
+      required: ["project_id"],
+      properties: {
+        project_id: { type: "string", description: "ID of the project to delete" }
+      }
+    }
   }
 ];
 
@@ -158,6 +226,58 @@ function executeTool(name, args = {}) {
         filteredTasks = filteredTasks.filter(t => t.status === args.status);
       }
       return `Tasks (${filteredTasks.length}):\n${JSON.stringify(filteredTasks, null, 2)}`;
+
+    case "update_task":
+      const taskIndex = tasks.findIndex(t => t.id === args.task_id);
+      if (taskIndex === -1) {
+        throw new Error(`Task not found: ${args.task_id}`);
+      }
+      
+      // Update only provided fields
+      if (args.title !== undefined) tasks[taskIndex].title = args.title;
+      if (args.description !== undefined) tasks[taskIndex].description = args.description;
+      if (args.status !== undefined) tasks[taskIndex].status = args.status;
+      if (args.priority !== undefined) tasks[taskIndex].priority = args.priority;
+      tasks[taskIndex].updated_at = new Date().toISOString();
+      
+      return `✅ Updated task: "${tasks[taskIndex].title}"\nStatus: ${tasks[taskIndex].status} | Priority: ${tasks[taskIndex].priority}`;
+
+    case "delete_task":
+      const taskToDelete = tasks.find(t => t.id === args.task_id);
+      if (!taskToDelete) {
+        throw new Error(`Task not found: ${args.task_id}`);
+      }
+      
+      tasks = tasks.filter(t => t.id !== args.task_id);
+      return `🗑️ Deleted task: "${taskToDelete.title}"`;
+
+    case "update_project":
+      const projectIndex = projects.findIndex(p => p.id === args.project_id);
+      if (projectIndex === -1) {
+        throw new Error(`Project not found: ${args.project_id}`);
+      }
+      
+      // Update only provided fields
+      if (args.name !== undefined) projects[projectIndex].name = args.name;
+      if (args.description !== undefined) projects[projectIndex].description = args.description;
+      if (args.status !== undefined) projects[projectIndex].status = args.status;
+      if (args.priority !== undefined) projects[projectIndex].priority = args.priority;
+      projects[projectIndex].updated_at = new Date().toISOString();
+      
+      return `✅ Updated project: "${projects[projectIndex].name}"\nStatus: ${projects[projectIndex].status} | Priority: ${projects[projectIndex].priority}`;
+
+    case "delete_project":
+      const projectToDelete = projects.find(p => p.id === args.project_id);
+      if (!projectToDelete) {
+        throw new Error(`Project not found: ${args.project_id}`);
+      }
+      
+      // Delete all tasks associated with the project
+      const deletedTasksCount = tasks.filter(t => t.project_id === args.project_id).length;
+      tasks = tasks.filter(t => t.project_id !== args.project_id);
+      projects = projects.filter(p => p.id !== args.project_id);
+      
+      return `🗑️ Deleted project: "${projectToDelete.name}" and ${deletedTasksCount} associated tasks`;
 
     default:
       throw new Error(`Unknown tool: ${name}`);
